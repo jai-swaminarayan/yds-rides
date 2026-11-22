@@ -16,8 +16,7 @@ async function firebaseBackend() {
   const app = initializeApp(FIREBASE_CONFIG);
   const auth = A.getAuth(app);
   const db = F.getFirestore(app);
-  A.getRedirectResult(auth).catch(() => {});
-  const wrap = u => u && { uid: u.uid, name: u.displayName || "", email: (u.email || "").toLowerCase(), admin: adminCheck(u.email) };
+  const wrap = u => u && { uid: u.uid, name: u.displayName || "", email: (u.email || "").toLowerCase(), verified: !!u.emailVerified, admin: adminCheck(u.email) && !!u.emailVerified };
   return {
     mode: "firebase",
     onUser: cb => A.onAuthStateChanged(auth, u => cb(wrap(u))),
@@ -25,11 +24,17 @@ async function firebaseBackend() {
       const p = new A.GoogleAuthProvider();
       p.setCustomParameters({ prompt: "select_account" });
       try { await A.signInWithPopup(auth, p); }
-      catch (e) {
-        if (["auth/popup-blocked", "auth/operation-not-supported-in-this-environment", "auth/cancelled-popup-request"].includes(e.code)) await A.signInWithRedirect(auth, p);
-        else if (e.code !== "auth/popup-closed-by-user") throw e;
-      }
+      catch (e) { if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") throw e; }
     },
+    async signUpEmail(email, pass, name) {
+      const c = await A.createUserWithEmailAndPassword(auth, email, pass);
+      if (name) await A.updateProfile(c.user, { displayName: name });
+      try { await A.sendEmailVerification(c.user); } catch (e) {}
+    },
+    signInEmail: (email, pass) => A.signInWithEmailAndPassword(auth, email, pass),
+    resetPassword: email => A.sendPasswordResetEmail(auth, email),
+    resendVerification: () => A.sendEmailVerification(auth.currentUser),
+    async refreshUser() { const u = auth.currentUser; if (!u) return null; await u.reload(); await u.getIdToken(true); return wrap(auth.currentUser); },
     signOut: () => A.signOut(auth),
     listen: (c, cb, err) => F.onSnapshot(F.collection(db, c), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))), err),
     get: async (c, id) => { const s = await F.getDoc(F.doc(db, c, id)); return s.exists() ? { ...s.data(), id: s.id } : null; },
@@ -43,10 +48,10 @@ async function firebaseBackend() {
 function demoBackend() {
   const KEY = "ydsr-demo-db2", UKEY = "ydsr-demo-user2";
   const PEOPLE = [
-    { uid: "demo-admin", name: "Meshva (admin)", email: "admin@demo", admin: true },
-    { uid: "demo-leader", name: "Ride leader", email: "leader@demo", admin: false },
-    { uid: "demo-female", name: "Member (female)", email: "female@demo", admin: false },
-    { uid: "demo-male", name: "Member (male)", email: "male@demo", admin: false }
+    { uid: "demo-admin", name: "Meshva (admin)", email: "admin@demo", admin: true, verified: true },
+    { uid: "demo-leader", name: "Ride leader", email: "leader@demo", admin: false, verified: true },
+    { uid: "demo-female", name: "Member (female)", email: "female@demo", admin: false, verified: true },
+    { uid: "demo-male", name: "Member (male)", email: "male@demo", admin: false, verified: true }
   ];
   let store = null;
   try { store = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) {}
@@ -61,6 +66,11 @@ function demoBackend() {
     mode: "demo",
     onUser: cb => { userSubs.push(cb); setTimeout(() => cb(PEOPLE[who] || null), 0); },
     signIn: async () => setWho(0),
+    signUpEmail: async () => setWho(0),
+    signInEmail: async () => setWho(0),
+    resetPassword: async () => {},
+    resendVerification: async () => {},
+    refreshUser: async () => PEOPLE[who] || null,
     signOut: async () => setWho(-1),
     switchDemoUser: () => setWho((who + 1) % PEOPLE.length),
     listen: (c, cb) => { (subs[c] = subs[c] || []).push(cb); setTimeout(() => emit(c), 0); return () => { subs[c] = (subs[c] || []).filter(f => f !== cb); }; },

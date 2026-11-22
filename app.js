@@ -10,7 +10,7 @@ const AREAS = ["Charlottetown", "Stratford", "Cornwall", "Summerside", "Montague
 const KIND = { event: "YDS event", temple: "Temple visit" };
 const FOR = { ladies: "Female only", gents: "Male only", any: "Anyone" };
 const GEN = { female: "Female", male: "Male" };
-let api = null, user = null, profile = null, filter = "all", openId = null, form = null, unsubs = [];
+let pendingName = "", authMode = "signup", api = null, user = null, profile = null, filter = "all", openId = null, form = null, unsubs = [];
 const loaded = new Set();
 const d0 = new Date();
 const today = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, "0")}-${String(d0.getDate()).padStart(2, "0")}`;
@@ -25,7 +25,8 @@ const del = (c, id, label) => `<button type="button" class="link" data-del="${c}
 const place = (addr, gm) => esc(addr || "") + (gm ? ` <span class="gm">· Ghar mandir: ${esc(gm)}</span>` : "");
 
 const isAdmin = () => !!user && user.admin;
-const isLeader = () => !!user && (user.admin || S.roles.some(r => r.id === user.email));
+const isLeader = () => !!user && (user.admin || (user.verified && S.roles.some(r => r.id === user.email)));
+const needsVerify = () => !!user && !user.verified && (ADMIN_LIST.includes(user.email) || S.roles.some(r => r.id === user.email));
 const isMine = x => !!user && x.by === user.uid;
 const canManage = x => isLeader() || isMine(x);
 const seatRows = oid => S.seats.filter(s => s.offerId === oid);
@@ -48,11 +49,36 @@ const renderWho = () => {
 
 /* ---------- signed out ---------- */
 const renderSignIn = () => {
+  const up = authMode === "signup";
   $("#view").innerHTML = `<section class="signin"><h2>Need a ride, or have a spare seat?</h2>
-  <p>Sign in to see rides to upcoming YDS events and temple visits, offer a seat in your car, or ask for a ride.</p>
-  <button class="gbtn" id="signIn">${G_ICON}Sign in with Google</button></section>`;
+  <p>Create a free account to see rides to YDS events and temple visits, offer a seat in your car, or ask for a ride.</p>
+  <div class="authcard">
+    <div class="seg"><button type="button" data-mode="signup" aria-pressed="${up}">Create account</button><button type="button" data-mode="signin" aria-pressed="${!up}">Sign in</button></div>
+    <form id="authForm" novalidate>
+      ${up ? `<label for="a-name">Full name</label><input id="a-name" name="name" autocomplete="name" required>` : ""}
+      <label for="a-email">Email</label><input id="a-email" name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="off" required>
+      <label for="a-pass">Password</label><input id="a-pass" name="pass" type="password" autocomplete="${up ? "new-password" : "current-password"}" minlength="6" required>
+      ${up ? '<p class="hint">At least 6 characters.</p>' : ""}
+      <p class="err" id="authErr"></p>
+      <button type="submit" class="btn pri wide">${up ? "Create account" : "Sign in"}</button>
+      ${up ? "" : '<button type="button" class="link" id="forgot">Forgot password?</button>'}
+    </form>
+    <div class="or"><span>or</span></div>
+    <button type="button" class="gbtn" id="signIn">${G_ICON}Continue with Google</button>
+    <p class="hint">Opened the link from WhatsApp? Use email and password, or open the link in Safari or Chrome to use Google.</p>
+  </div></section>`;
 };
-
+const authErr = e => ({
+  "auth/email-already-in-use": "That email already has an account. Tap “Sign in” instead.",
+  "auth/invalid-credential": "Email or password is wrong.", "auth/wrong-password": "Email or password is wrong.", "auth/user-not-found": "No account with that email. Tap “Create account”.",
+  "auth/weak-password": "Password must be at least 6 characters.", "auth/invalid-email": "Please check the email address.",
+  "auth/too-many-requests": "Too many tries. Wait a few minutes and try again.", "auth/network-request-failed": "No internet connection. Try again.",
+  "auth/popup-blocked": "The Google window was blocked. Use email and password, or open this link in Safari or Chrome.",
+  "auth/operation-not-allowed": "This sign-in method isn’t turned on yet. Ask the admin.",
+  "auth/web-storage-unsupported": "This browser blocks sign-in. Open the link in Safari or Chrome."
+}[e && e.code] || "Sign-in didn’t work. Try email and password, or open the link in Safari or Chrome.");
+const verifyBanner = () => needsVerify() ? `<div class="verify"><p><strong>Verify your email to unlock ${ADMIN_LIST.includes(user.email) ? "admin" : "ride leader"} access.</strong> We sent a link to ${esc(user.email)}. Check your inbox and spam folder, tap the link, then come back here.</p>
+  <div class="row"><button type="button" class="btn pri" id="verifiedNow">I’ve verified</button><button type="button" class="link" id="resendVerify">Send the email again</button></div></div>` : "";
 /* ---------- list ---------- */
 const slip = t => {
   const o = S.offers.filter(x => x.tripId === t.id);
@@ -90,7 +116,7 @@ const renderList = () => {
   const all = S.trips.filter(t => filter === "all" || t.kind === filter).sort((a, b) => ((a.date || "") + (a.time || "")).localeCompare((b.date || "") + (b.time || "")));
   const up = all.filter(t => (t.date || "") >= today), past = all.filter(t => (t.date || "") < today).reverse();
   const chips = [["all", "All trips"], ["event", "YDS events"], ["temple", "Temple visits"]].map(([k, l]) => `<button class="chip" data-filter="${k}" aria-pressed="${filter === k}">${l}</button>`).join("");
-  $("#view").innerHTML = (isLeader() ? `<div class="addrow"><button class="btn ghost" data-members>Members${members.length ? ` (${members.length})` : ""}</button><button class="btn pri" data-form="trip">Add a trip</button></div>` : "") +
+  $("#view").innerHTML = verifyBanner() + (isLeader() ? `<div class="addrow"><button class="btn ghost" data-members>Members${members.length ? ` (${members.length})` : ""}</button><button class="btn pri" data-form="trip">Add a trip</button></div>` : "") +
     `<div class="chips">${chips}</div>` +
     (up.length ? up.map(slip).join("") : `<div class="empty"><b>No upcoming trips yet</b>${isLeader() ? "Add the next YDS event or temple visit, and members can start offering rides." : "Ride leaders will post the next event or temple visit here."}</div>`) +
     (past.length ? `<details class="past"><summary>Past trips (${past.length})</summary>${past.map(slip).join("")}</details>` : "") +
@@ -181,7 +207,7 @@ const FORMS = {
   profile: { h: () => profile && profile.agreed ? "My details" : "Register", b: () => profile && profile.agreed ? "Save" : "Register", body: () => { const p = profile || {}; return `
     ${p.agreed ? "" : `<p class="meta">Welcome to YDS Rides! Register once so drivers and ride leaders can arrange rides and seat male and female riders together.</p>`}
     <fieldset><legend>About you</legend>
-    ${F.txt("name", "Full name", { ac: "name", val: p.name || user.name })}
+    ${F.txt("name", "Full name", { ac: "name", val: p.name || user.name || pendingName })}
     ${F.txt("phone", "Phone (for WhatsApp or a call)", { type: "tel", ac: "tel", ph: "902 555 0123", val: p.phone })}
     ${F.sel("gender", "Gender", [["", "Choose…"], ["female", "Female"], ["male", "Male"]], p.gender)}
     <p class="hint">Signed in as ${esc(user.email)}</p></fieldset>
@@ -266,6 +292,18 @@ $("#sheet").addEventListener("submit", async ev => {
     if (kind === "profile" && !unsubs.length) subscribe();
   } catch (e) { btn.disabled = false; fail(e); }
 });
+$("#view").addEventListener("submit", async e => {
+  if (e.target.id !== "authForm") return;
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target)), el = $("#authErr"), btn = e.target.querySelector("[type=submit]");
+  const email = String(f.email || "").trim(), pass = String(f.pass || ""), name = String(f.name || "").trim();
+  if (authMode === "signup" && !name) { el.textContent = "Please enter your full name."; return; }
+  if (!email) { el.textContent = "Please enter your email."; return; }
+  if (pass.length < 6) { el.textContent = "Password must be at least 6 characters."; return; }
+  btn.disabled = true; el.textContent = ""; pendingName = name;
+  try { authMode === "signup" ? await api.signUpEmail(email, pass, name) : await api.signInEmail(email, pass); }
+  catch (err) { console.error(err); el.textContent = authErr(err); btn.disabled = false; }
+});
 $("#sheet").addEventListener("click", e => { if (e.target.closest("[data-edit-profile]")) openForm("profile"); });
 $("#sheet").addEventListener("change", e => { if (e.target.id === "f-hasCar") { $("#carBox").hidden = e.target.value !== "yes"; } });
 $("#ov").addEventListener("click", e => { if (form && !form.locked && (e.target.id === "ov" || e.target.id === "cancel")) closeForm(); });
@@ -287,7 +325,22 @@ const removeAll = async (c, id) => {
 $("#view").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   try {
-    if (b.id === "signIn") { b.disabled = true; try { await api.signIn(); } catch (err) { note("Sign-in didn’t work. Please try again."); console.error(err); } b.disabled = false; return; }
+    if (b.id === "signIn") { b.disabled = true; try { await api.signIn(); } catch (err) { console.error(err); const el = $("#authErr"); if (el) el.textContent = authErr(err); } b.disabled = false; return; }
+    if (b.dataset.mode) { authMode = b.dataset.mode; renderSignIn(); return; }
+    if (b.id === "forgot") {
+      const email = ($("#a-email").value || "").trim(), el = $("#authErr");
+      if (!email) { el.textContent = "Type your email above first, then tap “Forgot password?”."; $("#a-email").focus(); return; }
+      b.disabled = true;
+      try { await api.resetPassword(email); el.textContent = "Password reset email sent. Check your inbox and spam folder."; } catch (err) { el.textContent = authErr(err); }
+      b.disabled = false; return;
+    }
+    if (b.id === "resendVerify") { b.disabled = true; try { await api.resendVerification(); b.textContent = "Sent. Check your inbox and spam."; } catch (err) { b.textContent = "Try again in a minute"; b.disabled = false; } return; }
+    if (b.id === "verifiedNow") {
+      b.disabled = true;
+      try { const u = await api.refreshUser(); if (u) { user = u; } } catch (err) { console.error(err); }
+      if (user && user.verified) { note("Email verified. Welcome!"); render(); } else { b.disabled = false; b.textContent = "Not verified yet. Tap the link in the email first."; }
+      return;
+    }
     if (b.dataset.filter) { filter = b.dataset.filter; render(); return; }
     if (b.dataset.open) { openId = b.dataset.open; note(""); render(); window.scrollTo(0, 0); return; }
     if (b.id === "back") { openId = null; view = "list"; render(); return; }
