@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>YDS Rides</title>
+<meta name="description" content="Free community rides to YDS events and temple visits in PEI.">
+<meta name="theme-color" content="#f5a000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="YDS Rides">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="demo" id="demo" hidden>
+  <span><strong>Demo mode:</strong> data stays in this browser only. Add your Firebase settings in config.js to go live.</span>
+  <button class="link" id="switchUser">Switch demo person</button>
+</div>
+<header><div class="wrap">
+  <div><h1 id="appName">YDS Rides</h1><p>Free rides to YDS events and temple visits, from our community, for our community.</p></div>
+  <div class="who" id="who" hidden><span id="whoName"></span><span class="whoacts"><button class="link light" id="myDetails">My details</button><button class="link light" id="signOut">Sign out</button></span></div>
+</div></header>
+<main><div class="wrap">
+  <div class="install" id="install" hidden><span id="installText">Install YDS Rides on your phone for one-tap access.</span><button class="btn ghost" id="installBtn" hidden>Install app</button><button class="link" id="installClose" aria-label="Dismiss">Not now</button></div>
+  <p class="status" id="status">Loading…</p>
+  <div id="view"></div>
+  <p class="foot">Rides are free, offered by YDS volunteers. Phone numbers you add are visible to signed-in members.</p>
+</div></main>
+<div class="ov" id="ov"><form class="sheet" id="sheet" novalidate></form></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
